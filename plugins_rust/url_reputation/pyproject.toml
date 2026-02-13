@@ -11,10 +11,6 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dynamic = ["version"]
-dependencies = [
-    "ipython>=8.12.3",
-]
-
 
 [tool.maturin]
-include = ["url_reputation.pyi"]
+include = ["url_reputation_rust.pyi"]
