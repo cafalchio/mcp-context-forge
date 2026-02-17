@@ -1,6 +1,6 @@
 use std::collections::HashSet;
-
 use regex::Regex;
+
 
 pub fn in_blocked_patterns_regex(domain: &str, blocked_patterns: &[Regex]) -> bool {
     blocked_patterns.iter().any(|re| re.is_match(domain))
