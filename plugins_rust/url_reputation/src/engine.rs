@@ -1,8 +1,11 @@
 use crate::{
-    filters::{heuristic, patterns},
+    filters::{
+        heuristic,
+        patterns::{self, in_domain_list},
+    },
     types::{PluginViolation, URLPluginResult, URLReputationConfig},
 };
-use pyo3::prelude::*;
+use pyo3::{prelude::*, types::PyDict};
 use regex::Regex;
 use std::{
     collections::HashMap,
@@ -36,6 +39,11 @@ impl URLReputationPlugin {
             allowed_patterns,
             blocked_patterns,
         }
+    }
+    // exposed function return python dict
+    fn validate_url_py(&self, py: Python, url: &str) -> PyResult<Py<PyDict>> {
+        let result = self.validate_url(url);
+        result.to_py_dict(py)
     }
 
     fn validate_url(&self, url: &str) -> URLPluginResult {
@@ -77,13 +85,7 @@ impl URLReputationPlugin {
 
         let scheme = parsed_url.scheme();
 
-        // check whitelisted domains
-        if self
-            .config
-            .whitelist_domains
-            .iter()
-            .any(|d| patterns::domain_matches(domain, d))
-        {
+        if in_domain_list(domain, &self.config.whitelist_domains) {
             return URLPluginResult {
                 continue_processing: true,
                 violation: None,
@@ -109,12 +111,7 @@ impl URLReputationPlugin {
             };
         }
         // check blocked domains
-        if self
-            .config
-            .blocked_domains
-            .iter()
-            .any(|d| patterns::domain_matches(domain, d))
-        {
+        if in_domain_list(domain, &self.config.blocked_domains) {
             return URLPluginResult {
                 continue_processing: false,
                 violation: Some(PluginViolation {
@@ -186,14 +183,13 @@ impl URLReputationPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
 
     #[test]
     fn test_whitelisted_domain() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::from(["example.com".to_string()]),
+            whitelist_domains: Vec::from(["example.com".to_string()]),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: false,
             entropy_threshold: 0.0,
@@ -209,9 +205,9 @@ mod tests {
     #[test]
     fn test_blocked_domain() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::from(["bad.example".to_string()]),
+            blocked_domains: Vec::from(["bad.example".to_string()]),
             blocked_patterns: Vec::new(),
             use_heuristic_check: false,
             entropy_threshold: 0.0,
@@ -228,9 +224,9 @@ mod tests {
     #[test]
     fn test_non_secure_http() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: true,
             entropy_threshold: 5.0,
@@ -250,9 +246,9 @@ mod tests {
     #[test]
     fn test_allowed_pattern() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: vec!["0932".to_string(), "safe\\.com/allowed".to_string()],
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: false,
             entropy_threshold: 0.0,
@@ -268,9 +264,9 @@ mod tests {
     #[test]
     fn test_blocked_pattern() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: vec!["crypto.*".to_string()],
             use_heuristic_check: false,
             entropy_threshold: 0.0,
@@ -287,9 +283,9 @@ mod tests {
     #[test]
     fn test_valid_url() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: vec!["crypto.*".to_string()],
             use_heuristic_check: false,
             entropy_threshold: 3.65,
@@ -305,9 +301,9 @@ mod tests {
     #[test]
     fn test_could_not_parse_url_invalid_character() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: vec!["crypto.*".to_string()],
             use_heuristic_check: false,
             entropy_threshold: 3.65,
@@ -323,9 +319,9 @@ mod tests {
     #[test]
     fn test_could_not_parse_domain_invalid_character() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: vec![],
             use_heuristic_check: true,
             entropy_threshold: 5.0,
@@ -341,9 +337,9 @@ mod tests {
     #[test]
     fn test_heuristic_high_entropy_domain() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: vec![],
             use_heuristic_check: true,
             entropy_threshold: 3.65,
@@ -359,9 +355,9 @@ mod tests {
     #[test]
     fn test_heuristic_invalid_tld() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: vec![],
             use_heuristic_check: true,
             entropy_threshold: 5.65,
@@ -378,9 +374,9 @@ mod tests {
     #[test]
     fn test_heuristic_domain_too_long() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: true,
             entropy_threshold: 5.0,
@@ -402,9 +398,9 @@ mod tests {
     #[test]
     fn test_is_domain_unicode_secure_mixed_scripts() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: true,
             entropy_threshold: 5.0,
@@ -425,9 +421,9 @@ mod tests {
     #[test]
     fn test_is_domain_unicode_secure_pure_ascii() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: true,
             entropy_threshold: 5.0,
@@ -444,9 +440,9 @@ mod tests {
     #[test]
     fn test_is_domain_unicode_secure_empty_label() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: true,
             entropy_threshold: 5.0,
@@ -467,9 +463,9 @@ mod tests {
     #[test]
     fn test_is_domain_unicode_invalid_characters() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: true,
             entropy_threshold: 5.0,
@@ -490,9 +486,9 @@ mod tests {
     #[test]
     fn test_url_valid_ipv4() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: true,
             entropy_threshold: 5.0,
@@ -509,9 +505,9 @@ mod tests {
     #[test]
     fn test_url_invalid_ipv4() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: true,
             entropy_threshold: 5.0,
@@ -528,9 +524,9 @@ mod tests {
     #[test]
     fn test_url_valid_ipv6() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: true,
             entropy_threshold: 5.0,
@@ -547,9 +543,9 @@ mod tests {
     #[test]
     fn test_url_invalid_ipv6() {
         let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
+            whitelist_domains: Vec::new(),
             allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::new(),
+            blocked_domains: Vec::new(),
             blocked_patterns: Vec::new(),
             use_heuristic_check: true,
             entropy_threshold: 5.0,

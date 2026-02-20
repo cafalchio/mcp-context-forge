@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Try to import Rust-accelerated implementation
 try:
-    from url_reputation import URLReputationPlugin as plugin_rust
+    from url_reputation_rust import URLReputationPlugin as plugin_rust
     _RUST_AVAILABLE = True
     logger.info("🦀 Rust url reputation plugin available")
 except ImportError as e:
@@ -47,16 +47,16 @@ class URLReputationConfig(BaseModel):
     """Configuration for URL reputation checks.
     """
 
-    whitelist_domains: Set[str] = Field(
-        default_factory=set,
+    whitelist_domains: List[str] = Field(
+        default_factory=list,
         description="Domains that are always allowed, bypassing checks."
     )
     allowed_patterns: List[str] = Field(
         default_factory=list,
         description="URL patterns that are explicitly allowed."
     )
-    blocked_domains: Set[str] = Field(
-        default_factory=set,
+    blocked_domains: List[str] = Field(
+        default_factory=list,
         description="Domains that are blocked by the plugin."
     )
     blocked_patterns: List[str] = Field(
@@ -89,9 +89,12 @@ class URLReputationPlugin(Plugin):
         super().__init__(config)
         self._cfg = URLReputationConfig(**(config.config or {}))
         if _RUST_AVAILABLE:
+            logger.warn("🦀 Rust url reputation plugin available")
             self.rust_plugin = plugin_rust(self._cfg)
+        else:
+             logger.warn("Running in Python")
 
-    async def resource_pre_fetch(self, payload: ResourcePreFetchPayload) -> ResourcePreFetchResult:
+    async def resource_pre_fetch(self, payload: ResourcePreFetchPayload, context: PluginContext) -> ResourcePreFetchResult:
         """Check URL against blocked domains and patterns before fetch.
 
         Args:
@@ -102,20 +105,15 @@ class URLReputationPlugin(Plugin):
             Result indicating whether URL is allowed or blocked.
         """
         if _RUST_AVAILABLE:
-            result = self.rust_plugin.validate_url(payload.uri)
-            violation_dict = None
-            if result.violation is not None:
-                violation_dict = {
-                    "reason": result.violation.reason,
-                    "description": result.violation.description,
-                    "code": result.violation.code,
-                    "details": result.violation.details,
-                }
+            try:
+                result_dict = self.rust_plugin.validate_url_py(payload.uri)
+                return ResourcePreFetchResult(**result_dict)
+            except Exception as e:
+                # handle Rust plugin errors gracefully
+                logger.warning(f"Rust plugin failed: {e}")
+                # fallback: allow processing, no violation
+                return ResourcePreFetchResult(continue_processing=True)
 
-            return ResourcePreFetchResult(
-                continue_processing=result.continue_processing,
-                violation=violation_dict
-            )
 
         parsed = urlparse(payload.uri)
         host = parsed.hostname or ""
