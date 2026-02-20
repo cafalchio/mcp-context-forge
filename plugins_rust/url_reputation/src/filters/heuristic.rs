@@ -52,7 +52,6 @@ pub fn is_tld_legal(domain: &str) -> bool {
 
 pub fn is_domain_unicode_secure(domain: &str) -> bool {
     let (unicode, errors) = domain_to_unicode(domain);
-    println!("Error {:?}", errors);
     if errors.is_err() || unicode.len() > 253 {
         return false;
     }
@@ -74,8 +73,6 @@ pub fn is_domain_unicode_secure(domain: &str) -> bool {
             .all(GeneralSecurityProfile::identifier_allowed)
         {
             return false;
-        } else {
-            println!("DOMAIN {}", cleaned);
         }
         // Restriction level check
         let level = cleaned.detect_restriction_level();
