@@ -20,7 +20,7 @@ unicode-security = "0.1.2"
 url = "2.5.8"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8.2"
 
 [[bench]]
 name = "url_validation"
