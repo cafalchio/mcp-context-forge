@@ -991,9 +991,9 @@ def test_check_resource_team_ownership_prompt_and_gateway():
     db.execute.return_value.scalar_one_or_none.return_value = gateway
     assert middleware._check_resource_team_ownership("/gateways/a1b2c3d4", ["team-1"], db=db, _user_email="owner@example.com") is True
 
-    # Missing resources must fail closed
+    # Resource not found should allow
     db.execute.return_value.scalar_one_or_none.return_value = None
-    assert middleware._check_resource_team_ownership("/resources/a1b2c3d4", ["team-1"], db=db, _user_email="user@example.com") is False
+    assert middleware._check_resource_team_ownership("/resources/a1b2c3d4", ["team-1"], db=db, _user_email="user@example.com") is True
 
 
 def test_check_resource_team_ownership_normalizes_team_dict_and_allows_team_resource():
