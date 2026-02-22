@@ -1,10 +1,11 @@
 use pyo3::prelude::*;
-mod engine;
+pub mod engine;
 pub mod filters;
-mod types;
+pub mod types;
 
 #[pymodule]
 fn url_reputation_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    pyo3_log::init();
     m.add_class::<engine::URLReputationPlugin>()?;
     Ok(())
 }
