@@ -22,7 +22,12 @@ except ImportError:
 
 
 # Add plugins directory to path to import Python implementation
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "plugins" / "url_reputation"))
+plugins_path = Path(__file__).parent.parent.parent / "plugins" / "url_reputation"
+if plugins_path.exists():
+    sys.path.insert(0, str(plugins_path))
+else:
+    print(f"Warning: Python implementation path not found: {plugins_path}")
+    print("Benchmark will only test Rust implementation if available.")
 
 
 class Payload:
@@ -57,39 +62,49 @@ async def run_benchmark(language: Literal["python", "rust"], config: PluginConfi
         return [], 0
 
     if language == "python":
-        import url_reputation
-        with patch.object(url_reputation, '_RUST_AVAILABLE', False):
-            from url_reputation import URLReputationPlugin
-            plugin = URLReputationPlugin(config)
-            # Warmup phase
-            for payload in generate_payloads(warmup, urls, url_multiplier):
-                await plugin.resource_pre_fetch(payload, None)
+        try:
+            import url_reputation
+            with patch.object(url_reputation, '_RUST_AVAILABLE', False):
+                from url_reputation import URLReputationPlugin
+                plugin = URLReputationPlugin(config)
+                
+                # Warmup phase
+                for payload in generate_payloads(warmup, urls, url_multiplier):
+                    await plugin.resource_pre_fetch(payload, None)
 
-            # Actual benchmark
-            times = []
-            for payload in generate_payloads(iterations, urls, url_multiplier):
-                start = time.perf_counter()
-                await plugin.resource_pre_fetch(payload, None)
-                times.append(time.perf_counter() - start)
+                # Actual benchmark
+                times = []
+                for payload in generate_payloads(iterations, urls, url_multiplier):
+                    start = time.perf_counter()
+                    await plugin.resource_pre_fetch(payload, None)
+                    times.append(time.perf_counter() - start)
 
-            return times, len(times)
+                return times, len(times)
+        except ImportError as e:
+            print(f"Warning: Could not import Python implementation: {e}")
+            return [], 0
     else:
-        import url_reputation
-        with patch.object(url_reputation, '_RUST_AVAILABLE', True):
-            from url_reputation import URLReputationPlugin
-            plugin = URLReputationPlugin(config)
-            # Warmup phase
-            for payload in generate_payloads(warmup, urls, url_multiplier):
-                await plugin.resource_pre_fetch(payload, None)
+        try:
+            import url_reputation
+            with patch.object(url_reputation, '_RUST_AVAILABLE', True):
+                from url_reputation import URLReputationPlugin
+                plugin = URLReputationPlugin(config)
+                
+                # Warmup phase
+                for payload in generate_payloads(warmup, urls, url_multiplier):
+                    await plugin.resource_pre_fetch(payload, None)
 
-            # Actual benchmark
-            times = []
-            for payload in generate_payloads(iterations, urls, url_multiplier):
-                start = time.perf_counter()
-                await plugin.resource_pre_fetch(payload, None)
-                times.append(time.perf_counter() - start)
+                # Actual benchmark
+                times = []
+                for payload in generate_payloads(iterations, urls, url_multiplier):
+                    start = time.perf_counter()
+                    await plugin.resource_pre_fetch(payload, None)
+                    times.append(time.perf_counter() - start)
 
-            return times, len(times)
+                return times, len(times)
+        except ImportError as e:
+            print(f"Warning: Could not import url_reputation wrapper: {e}")
+            return [], 0
 
 
 async def run_scenario(name: str, config: PluginConfig, iterations: int, urls: list[str], url_multiplier: int = 1, warmup: int = 5):
@@ -98,7 +113,15 @@ async def run_scenario(name: str, config: PluginConfig, iterations: int, urls: l
 
     results = {}
     for language in ["python", "rust"]:
-        times, count = await run_benchmark(language, config, iterations, urls, url_multiplier, warmup)
+        benchmark_result = await run_benchmark(language, config, iterations, urls, url_multiplier, warmup)
+        
+        if benchmark_result is None or len(benchmark_result) != 2:
+            if language == "rust":
+                print("✗ (Rust not available)")
+                return None
+            continue
+            
+        times, count = benchmark_result
 
         if not times:
             if language == "rust":
