@@ -13,6 +13,15 @@ pub struct URLReputationConfig {
     pub block_non_secure_http: bool,
 }
 
+impl URLReputationConfig {
+    /// Normalize domains to lowercase for case-insensitive matching
+    pub fn normalize_domains(mut self) -> Self {
+        self.whitelist_domains = self.whitelist_domains.into_iter().map(|d| d.to_lowercase()).collect();
+        self.blocked_domains = self.blocked_domains.into_iter().map(|d| d.to_lowercase()).collect();
+        self
+    }
+}
+
 #[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PluginViolation {

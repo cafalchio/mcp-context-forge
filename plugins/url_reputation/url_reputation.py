@@ -107,7 +107,6 @@ class URLReputationPlugin(Plugin):
         if _RUST_AVAILABLE:
             try:
                 result_dict = self.rust_plugin.validate_url_py(payload.uri)
-                logger.warn(f"Blocked {uri}")
                 return ResourcePreFetchResult(**result_dict)
             except Exception as e:
                 # handle Rust plugin errors gracefully
@@ -115,11 +114,31 @@ class URLReputationPlugin(Plugin):
                 # fallback: allow processing, no violation
                 return ResourcePreFetchResult(continue_processing=True)
 
+        # Python fallback implementation (basic features only)
         parsed = urlparse(payload.uri)
-        host = parsed.hostname or ""
-        # Domain check
-        if host and any(host == d or host.endswith("." + d) for d in self._cfg.blocked_domains):
-            logger.warn(f"Blocked {uri}")
+        host = (parsed.hostname or "").lower()  # Normalize to lowercase
+        uri = payload.uri.lower()  # Normalize URL for pattern matching
+        
+        # Whitelist check (case-insensitive)
+        normalized_whitelist = {d.lower() for d in self._cfg.whitelist_domains}
+        if host and any(host == d or host.endswith("." + d) for d in normalized_whitelist):
+            return ResourcePreFetchResult(continue_processing=True)
+        
+        # Block non-secure HTTP
+        if self._cfg.block_non_secure_http and parsed.scheme != "https":
+            return ResourcePreFetchResult(
+                continue_processing=False,
+                violation=PluginViolation(
+                    reason="Blocked non secure http url",
+                    description=f"URL {payload.uri} is blocked",
+                    code="URL_REPUTATION_BLOCK",
+                    details={"url": payload.uri},
+                ),
+            )
+        
+        # Blocked domain check (case-insensitive)
+        normalized_blocked = {d.lower() for d in self._cfg.blocked_domains}
+        if host and any(host == d or host.endswith("." + d) for d in normalized_blocked):
             return ResourcePreFetchResult(
                 continue_processing=False,
                 violation=PluginViolation(
@@ -129,11 +148,10 @@ class URLReputationPlugin(Plugin):
                     details={"domain": host},
                 ),
             )
-        # Pattern check
-        uri = payload.uri
+        
+        # Pattern check (simple substring match, case-insensitive)
         for pat in self._cfg.blocked_patterns:
-            if pat in uri:
-                logger.warn(f"Blocked {uri}")
+            if pat.lower() in uri:
                 return ResourcePreFetchResult(
                     continue_processing=False,
                     violation=PluginViolation(
@@ -143,4 +161,5 @@ class URLReputationPlugin(Plugin):
                         details={"pattern": pat},
                     ),
                 )
+        
         return ResourcePreFetchResult(continue_processing=True)

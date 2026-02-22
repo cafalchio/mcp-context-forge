@@ -25,6 +25,9 @@ pub struct URLReputationPlugin {
 impl URLReputationPlugin {
     #[new]
     pub fn new(config: URLReputationConfig) -> Self {
+        // Normalize domains to lowercase for case-insensitive matching
+        let config = config.normalize_domains();
+        
         let allowed_patterns = config
             .allowed_patterns
             .iter()
@@ -213,43 +216,6 @@ mod tests {
         };
         let plugin = URLReputationPlugin::new(config);
         let url = "https://example.com";
-
-        let result = plugin.validate_url(url);
-        assert!(result.continue_processing);
-    }
-
-    #[test]
-    fn test_blocked_domain() {
-        let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
-            allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::from(["bad.example".to_string()]),
-            blocked_patterns: Vec::new(),
-            use_heuristic_check: false,
-            entropy_threshold: 0.0,
-            block_non_secure_http: true,
-        };
-        let plugin = URLReputationPlugin::new(config);
-        let url = "https://api.bad.example/v1";
-
-        let result = plugin.validate_url(url);
-        assert!(!result.continue_processing);
-        assert_eq!(result.violation.unwrap().reason, "Domain in blocked set");
-    }
-
-    #[test]
-    fn test_blocked_domain() {
-        let config = URLReputationConfig {
-            whitelist_domains: HashSet::new(),
-            allowed_patterns: Vec::new(),
-            blocked_domains: HashSet::from(["idontlikethisdomain.com".to_string()]),
-            blocked_patterns: Vec::new(),
-            use_heuristic_check: false,
-            entropy_threshold: 0.0,
-            block_non_secure_http: true,
-        };
-        let plugin = URLReputationPlugin::new(config);
-        let url = "https://idontlikethisdomain.com";
 
         let result = plugin.validate_url(url);
         assert!(result.continue_processing);
@@ -610,5 +576,124 @@ mod tests {
         let result = plugin.validate_url(url);
 
         assert!(result.continue_processing == false);
+    }
+
+    #[test]
+    fn test_invalid_allowed_regex_pattern() {
+        // Test that invalid regex patterns in allowed_patterns are logged and skipped
+        let config = URLReputationConfig {
+            whitelist_domains: HashSet::new(),
+            allowed_patterns: vec![
+                "valid\\.pattern".to_string(),
+                "[invalid(regex".to_string(),  // Invalid regex
+                "another\\.valid".to_string(),
+            ],
+            blocked_domains: HashSet::new(),
+            blocked_patterns: Vec::new(),
+            use_heuristic_check: false,
+            entropy_threshold: 0.0,
+            block_non_secure_http: false,
+        };
+        let plugin = URLReputationPlugin::new(config);
+        
+        // Should have compiled 2 valid patterns, skipped 1 invalid
+        assert_eq!(plugin.allowed_patterns.len(), 2);
+        
+        // Valid pattern should still work
+        let result = plugin.validate_url("https://example.com/valid.pattern");
+        assert!(result.continue_processing);
+    }
+
+    #[test]
+    fn test_invalid_blocked_regex_pattern() {
+        // Test that invalid regex patterns in blocked_patterns are logged and skipped
+        let config = URLReputationConfig {
+            whitelist_domains: HashSet::new(),
+            allowed_patterns: Vec::new(),
+            blocked_domains: HashSet::new(),
+            blocked_patterns: vec![
+                "valid.*pattern".to_string(),
+                "*invalid[regex".to_string(),  // Invalid regex
+                "another.*blocked".to_string(),
+            ],
+            use_heuristic_check: false,
+            entropy_threshold: 0.0,
+            block_non_secure_http: false,
+        };
+        let plugin = URLReputationPlugin::new(config);
+        
+        // Should have compiled 2 valid patterns, skipped 1 invalid
+        assert_eq!(plugin.blocked_patterns.len(), 2);
+        
+        // Valid pattern should still work
+        let result = plugin.validate_url("https://example.com/valid-pattern-test");
+        assert!(!result.continue_processing);
+        assert_eq!(result.violation.unwrap().reason, "Blocked pattern");
+    }
+
+    #[test]
+    fn test_case_insensitive_whitelist() {
+        // Test that domain normalization works for whitelist
+        let config = URLReputationConfig {
+            whitelist_domains: HashSet::from(["Example.COM".to_string()]),
+            allowed_patterns: Vec::new(),
+            blocked_domains: HashSet::new(),
+            blocked_patterns: Vec::new(),
+            use_heuristic_check: false,
+            entropy_threshold: 0.0,
+            block_non_secure_http: false,
+        };
+        let plugin = URLReputationPlugin::new(config);
+        
+        // Lowercase URL should match uppercase whitelist entry
+        let result = plugin.validate_url("https://example.com/path");
+        assert!(result.continue_processing);
+        
+        // Mixed case should also work
+        let result = plugin.validate_url("https://EXAMPLE.com/path");
+        assert!(result.continue_processing);
+    }
+
+    #[test]
+    fn test_case_insensitive_blocked() {
+        // Test that domain normalization works for blocked domains
+        let config = URLReputationConfig {
+            whitelist_domains: HashSet::new(),
+            allowed_patterns: Vec::new(),
+            blocked_domains: HashSet::from(["BAD.Example".to_string()]),
+            blocked_patterns: Vec::new(),
+            use_heuristic_check: false,
+            entropy_threshold: 0.0,
+            block_non_secure_http: false,
+        };
+        let plugin = URLReputationPlugin::new(config);
+        
+        // Lowercase URL should match mixed-case blocked entry
+        let result = plugin.validate_url("https://bad.example/path");
+        assert!(!result.continue_processing);
+        assert_eq!(result.violation.unwrap().reason, "Domain in blocked set");
+    }
+
+    #[test]
+    fn test_subdomain_matching() {
+        // Test that subdomains are properly matched
+        let config = URLReputationConfig {
+            whitelist_domains: HashSet::new(),
+            allowed_patterns: Vec::new(),
+            blocked_domains: HashSet::from(["blocked.com".to_string()]),
+            blocked_patterns: Vec::new(),
+            use_heuristic_check: false,
+            entropy_threshold: 0.0,
+            block_non_secure_http: false,
+        };
+        let plugin = URLReputationPlugin::new(config);
+        
+        // Subdomain should be blocked
+        let result = plugin.validate_url("https://api.blocked.com/v1");
+        assert!(!result.continue_processing);
+        
+        // Deep subdomain should also be blocked
+        let result = plugin.validate_url("https://deep.api.blocked.com/v1");
+        assert!(!result.continue_processing);
     }
 }

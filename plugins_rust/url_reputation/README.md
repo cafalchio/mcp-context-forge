@@ -133,13 +133,29 @@ flowchart LR
 
 ## Tests
 
-| Filename | Function Coverage | Line Coverage | Region Coverage | Branch Coverage |
-|--------------------------|-----------------|-----------------|-----------------|----------------|
-| engine.rs | 100.00% (23/23) | 100.00% (437/437) | 100.00% (529/529) | - (0/0) |
-| filters/heuristic.rs | 100.00% (6/6) | 96.72% (59/61) | 97.65% (83/85) | - (0/0) |
-| filters/patterns.rs | 100.00% (4/4) | 100.00% (8/8) | 100.00% (14/14) | - (0/0) |
-| lib.rs | 0.00% (0/1) | 0.00% (0/5) | 0.00% (0/9) | - (0/0) |
-| Totals | 97.06% (33/34) | 98.63% (504/511) | 98.27% (626/637) | - (0/0) |
+**Test Coverage** (24 unit tests, all passing):
+
+| Filename | Function Coverage | Line Coverage | Region Coverage |
+|--------------------------|-------------------|-----------------|-----------------|
+| engine.rs | 96.55% (28/29) | 99.26% (533/537) | 98.60% (634/643) |
+| filters/heuristic.rs | 100.00% (5/5) | 96.49% (55/57) | 97.53% (79/81) |
+| filters/patterns.rs | 100.00% (5/5) | 100.00% (20/20) | 100.00% (38/38) |
+| lib.rs | 0.00% (0/1) | 0.00% (0/5) | 0.00% (0/7) |
+| types.rs | 50.00% (3/6) | 26.92% (7/26) | 23.94% (17/71) |
+| **TOTAL** | **89.13% (41/46)** | **95.35% (615/645)** | **91.43% (768/840)** |
+
+*Note: `lib.rs` and `types.rs` contain PyO3 bindings and module declarations not covered by unit tests.*
+
+**New test coverage includes:**
+- Invalid regex pattern handling (both allowed and blocked patterns)
+- Case-insensitive domain matching (whitelist and blocklist)
+- Subdomain matching validation
+
+**Run tests:**
+```bash
+cargo test --lib              # Run all unit tests
+cargo llvm-cov --lib --html   # Generate coverage report
+```
 
 ## Heurist methods
 
