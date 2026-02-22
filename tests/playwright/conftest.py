@@ -36,6 +36,7 @@ from .pages.servers_page import ServersPage
 from .pages.team_page import TeamPage
 from .pages.tokens_page import TokensPage
 from .pages.tools_page import ToolsPage
+from .pages.users_page import UsersPage
 from .pages.version_page import VersionPage
 
 # Get configuration from environment
@@ -110,14 +111,18 @@ def _submit_login_and_wait(page: Page, login_page, email: str, password: str) ->
 
 
 def _set_admin_jwt_cookie(page: Page, email: str) -> None:
-    """Seed an admin JWT cookie to bypass UI login when credentials are unknown."""
+    """Seed an admin JWT cookie to bypass UI login when credentials are unknown.
+
+    Uses cookie-only auth (no Authorization header) to avoid CORS preflight
+    failures on cross-origin CDN requests that carry crossorigin="anonymous"
+    (required by SRI integrity attributes).
+    """
     try:
         token = _create_jwt_token({"sub": email}, user_data={"email": email, "is_admin": True, "auth_provider": "local"}, teams=None)
     except Exception as exc:  # pragma: no cover - should only fail on misconfig
         raise AssertionError(f"Failed to create admin JWT token: {exc}") from exc
 
     cookie_url = f"{BASE_URL.rstrip('/')}/"
-    page.context.set_extra_http_headers({"Authorization": f"Bearer {token}"})
     page.context.add_cookies(
         [
             {
@@ -354,6 +359,13 @@ def servers_page(page: Page, base_url: str) -> ServersPage:
 
 
 @pytest.fixture
+def users_page(page: Page, base_url: str) -> UsersPage:
+    """Provide a logged-in UsersPage instance for user management tests."""
+    _ensure_admin_logged_in(page, base_url)
+    return UsersPage(page)
+
+
+@pytest.fixture
 def version_page(page: Page, base_url: str) -> VersionPage:
     """Provide a logged-in VersionPage instance for version info tests."""
     _ensure_admin_logged_in(page, base_url)
@@ -412,6 +424,17 @@ def test_prompt_data():
         "name": f"test-prompt-{unique_id}",
         "description": "A test prompt created by automation",
         "arguments": '[{"name": "topic", "description": "Topic to discuss", "required": true}]',
+    }
+
+
+@pytest.fixture
+def test_user_data():
+    """Provide test data for user creation."""
+    unique_id = uuid.uuid4().hex[:8]
+    return {
+        "email": f"test-user-{unique_id}@example.com",
+        "full_name": f"Test User {unique_id}",
+        "password": "TestPass123!@#",
     }
 
 
