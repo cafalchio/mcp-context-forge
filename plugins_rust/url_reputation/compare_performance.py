@@ -18,8 +18,7 @@ try:
     RUST_AVAILABLE = True
 except ImportError:
     RUST_AVAILABLE = False
-    print("⚠️  Rust implementation not available. Build it with:")
-    print("   cd plugins_rust/url_reputation && maturin develop --release")
+    print("Rust implementation not available.")
 
 
 # Add plugins directory to path to import Python implementation
@@ -41,16 +40,18 @@ def load_bench_config(config_path: str = "bench_config.json"):
         return json.load(f)
 
 
-def generate_payloads(size: int, urls: list[str]):
+def generate_payloads(size: int, urls: list[str], url_multiplier: int = 1):
     """Return a list of urls to be used in the benchmark"""
-    url_count = len(urls)
-    repeated = urls * (size // url_count)
-    remaining = urls[:(size % url_count)]
+    # Apply url_multiplier to expand the URL list
+    expanded_urls = urls * url_multiplier
+    url_count = len(expanded_urls)
+    repeated = expanded_urls * (size // url_count)
+    remaining = expanded_urls[:(size % url_count)]
 
     return [Payload(url) for url in repeated + remaining]
 
 
-async def run_benchmark(language: Literal["python", "rust"], config: PluginConfig, iterations: int, urls: list[str], warmup: int = 5):
+async def run_benchmark(language: Literal["python", "rust"], config: PluginConfig, iterations: int, urls: list[str], url_multiplier: int = 1, warmup: int = 5):
     """Run benchmark for specified language implementation."""
     if language == "rust" and not RUST_AVAILABLE:
         return [], 0
@@ -61,12 +62,12 @@ async def run_benchmark(language: Literal["python", "rust"], config: PluginConfi
             from url_reputation import URLReputationPlugin
             plugin = URLReputationPlugin(config)
             # Warmup phase
-            for payload in generate_payloads(warmup, urls):
+            for payload in generate_payloads(warmup, urls, url_multiplier):
                 await plugin.resource_pre_fetch(payload, None)
 
             # Actual benchmark
             times = []
-            for payload in generate_payloads(iterations, urls):
+            for payload in generate_payloads(iterations, urls, url_multiplier):
                 start = time.perf_counter()
                 await plugin.resource_pre_fetch(payload, None)
                 times.append(time.perf_counter() - start)
@@ -78,12 +79,12 @@ async def run_benchmark(language: Literal["python", "rust"], config: PluginConfi
             from url_reputation import URLReputationPlugin
             plugin = URLReputationPlugin(config)
             # Warmup phase
-            for payload in generate_payloads(warmup, urls):
+            for payload in generate_payloads(warmup, urls, url_multiplier):
                 await plugin.resource_pre_fetch(payload, None)
 
             # Actual benchmark
             times = []
-            for payload in generate_payloads(iterations, urls):
+            for payload in generate_payloads(iterations, urls, url_multiplier):
                 start = time.perf_counter()
                 await plugin.resource_pre_fetch(payload, None)
                 times.append(time.perf_counter() - start)
@@ -91,46 +92,45 @@ async def run_benchmark(language: Literal["python", "rust"], config: PluginConfi
             return times, len(times)
 
 
-async def run_scenario(name: str, config: PluginConfig, iterations: int, urls: list[str], warmup: int = 5):
-    """Run benchmark scenario."""
-    print(f"\n{'=' * 70}")
-    print(f"Scenario: {name}")
-    print(f"{'=' * 70}")
+async def run_scenario(name: str, config: PluginConfig, iterations: int, urls: list[str], url_multiplier: int = 1, warmup: int = 5):
+    """Run benchmark scenario and return results."""
+    print(f"Running scenario: {name}...", end=" ", flush=True)
 
     results = {}
     for language in ["python", "rust"]:
-        print(f"Running {language}...", end=" ", flush=True)
-        times, count = await run_benchmark(language, config, iterations, urls, warmup)
+        times, count = await run_benchmark(language, config, iterations, urls, url_multiplier, warmup)
 
         if not times:
-            print(f"✗ {language} => Skipped (not available)")
             if language == "rust":
-                return
+                print("✗ (Rust not available)")
+                return None
             continue
 
-        mean = statistics.mean(times) * 1000
-        median = statistics.median(times) * 1000
-        stdev = statistics.stdev(times) * 1000 if len(times) > 1 else 0
+        mean = statistics.mean(times) * 1_000_000
+        median = statistics.median(times) * 1_000_000
+        stdev = statistics.stdev(times) * 1_000_000 if len(times) > 1 else 0
         results[language] = {"mean": mean, "median": median, "stdev": stdev, "count": count}
-        print(f"✓ {language} => ({mean:.3f} ms/iter, {count} payloads)")
 
     if len(results) < 2:
-        return
+        print("✗ (incomplete)")
+        return None
 
     speedup = results["python"]["mean"] / results["rust"]["mean"] if results["rust"]["mean"] > 0 else 0
-    print(f"\nResults:")
-    print(f"\tPython:    {results['python']['mean']:.3f} ms ±{results['python']['stdev']:.3f} (median: {results['python']['median']:.3f})")
-    print(f"\tRust:      {results['rust']['mean']:.3f} ms ±{results['rust']['stdev']:.3f} (median: {results['rust']['median']:.3f}) - {speedup:.2f}x faster 🚀")
-    if results["python"]["count"] != results["rust"]["count"]:
-        print(f"\n  ⚠️  WARNING: Different counts! Python={results['python']['count']}, Rust={results['rust']['count']}")
+    print(f"✓ (speedup: {speedup:.2f}x)")
+
+    return {
+        "name": name,
+        "python": results["python"],
+        "rust": results["rust"],
+        "speedup": speedup
+    }
 
 
 async def main():
     parser = argparse.ArgumentParser(description="Rust vs Python benchmark for URL reputation plugin")
-    parser.add_argument("--iterations", type=int, default=1000, help="Iterations per scenario")
-    parser.add_argument("--warmup", type=int, default=100, help="Warmup iterations")
+    parser.add_argument("--iterations", type=int, default=500_000, help="Iterations per scenario")
+    parser.add_argument("--warmup", type=int, default=1000, help="Warmup iterations")
     parser.add_argument("--config", type=str, default="bench_config.json", help="Path to benchmark config file")
-    parser.add_argument("--scenario", type=str, help="Run specific scenario (default: run all)")
     args = parser.parse_args()
 
     print("🔍 URL Reputation benchmark (Native Python Objects)")
@@ -139,7 +139,7 @@ async def main():
 
     # Load benchmark configuration
     try:
-        scenarios = load_bench_config(args.config)
+        bench_config = load_bench_config(args.config)
     except FileNotFoundError as e:
         print(f"❌ Error: {e}")
         sys.exit(1)
@@ -147,48 +147,71 @@ async def main():
         print(f"❌ Error parsing config file: {e}")
         sys.exit(1)
 
-    if not scenarios:
-        print("❌ Error: No scenarios found in config file")
+    # Extract configuration
+    urls = bench_config.get("urls", [])
+    blocked_patterns = bench_config.get("blocked_patterns", [])
+    blocked_domains = bench_config.get("blocked_domains", [])
+    url_multiplier = bench_config.get("url_multiplier", 1)
+
+    if not urls:
+        print("❌ Error: No URLs found in config file")
         sys.exit(1)
 
-    print(f"Loaded {len(scenarios)} scenario(s)")
+    print(f"Loaded {len(urls)} URLs, {len(blocked_patterns)} patterns, {len(blocked_domains)} domains")
+    print(f"URL multiplier: {url_multiplier}x")
 
-    # Filter scenarios if specific one requested
-    if args.scenario:
-        scenarios = [s for s in scenarios if s.get("scenario") == args.scenario]
-        if not scenarios:
-            available = [s.get("scenario") for s in load_bench_config(args.config)]
-            print(f"❌ Error: Scenario '{args.scenario}' not found in config")
-            print(f"Available scenarios: {', '.join(available)}")
-            sys.exit(1)
+    # Create plugin configuration
+    plugin_config = PluginConfig(
+        name="urlrep",
+        kind="plugins.url_reputation.url_reputation.URLReputationPlugin",
+        hooks=[ResourceHookType.RESOURCE_PRE_FETCH],
+        config={
+            "blocked_domains": blocked_domains,
+            "blocked_patterns": blocked_patterns,
+        },
+    )
 
-    # Run each scenario
-    for scenario_data in scenarios:
-        scenario_name = scenario_data.get("name", scenario_data.get("scenario", "Unknown"))
-        scenario_config = scenario_data.get("config", {}).copy()
-        urls = scenario_data.get("urls", [])
+    # Run benchmark
+    result = await run_scenario(
+        "URL Reputation Benchmark",
+        plugin_config,
+        args.iterations,
+        urls,
+        url_multiplier,
+        args.warmup
+    )
 
-        if not urls:
-            print(f"⚠️  Warning: No URLs found for scenario '{scenario_name}', skipping")
-            continue
+    # Print results
+    print(f"\n{'=' * 100}")
+    print("📊 BENCHMARK RESULTS")
+    print(f"{'=' * 100}")
 
-        # Handle domain_multiplier if present
-        domain_multiplier = scenario_config.pop("domain_multiplier", 1)
-        if "blocked_domains" in scenario_config and domain_multiplier > 1:
-            scenario_config["blocked_domains"] = scenario_config["blocked_domains"] * domain_multiplier
+    if not result:
+        print("❌ No results to display")
+        return
 
-        plugin_config = PluginConfig(
-            name="urlrep",
-            kind="plugins.url_reputation.url_reputation.URLReputationPlugin",
-            hooks=[ResourceHookType.RESOURCE_PRE_FETCH],
-            config=scenario_config,
-        )
+    # Detailed results
+    print(f"\n{'Metric':<30} {'Python':<25} {'Rust':<25}")
+    print(f"{'-' * 30} {'-' * 25} {'-' * 25}")
 
-        await run_scenario(scenario_name, plugin_config, args.iterations, urls, args.warmup)
+    python_mean = result["python"]["mean"]
+    python_median = result["python"]["median"]
+    python_stdev = result["python"]["stdev"]
+    rust_mean = result["rust"]["mean"]
+    rust_median = result["rust"]["median"]
+    rust_stdev = result["rust"]["stdev"]
+    speedup = result["speedup"]
 
-    print(f"\n{'=' * 70}")
+    print(f"{'Mean (μs/iter)':<30} {python_mean:>20.2f}    {rust_mean:>20.2f}")
+    print(f"{'Median (μs/iter)':<30} {python_median:>20.2f}    {rust_median:>20.2f}")
+    print(f"{'Std Dev (μs/iter)':<30} {python_stdev:>20.2f}    {rust_stdev:>20.2f}")
+    print(f"{'Iterations':<30} {result['python']['count']:>20}    {result['rust']['count']:>20}")
+
+    print(f"\n{'-' * 100}")
+    print(f"🚀 Speedup: {speedup:.2f}x faster with Rust")
+    print(f"{'=' * 100}")
     print("✅ Benchmark complete!")
-    print(f"{'=' * 70}\n")
+    print(f"{'=' * 100}\n")
 
 
 if __name__ == "__main__":

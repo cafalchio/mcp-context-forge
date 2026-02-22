@@ -42,6 +42,39 @@ config:
 * **block_non_secure_http**  
   - Whether URLs using `http` (non-secure) should be blocked. Default: `true`.  
 
+## Architecture
+
+```mermaid
+flowchart LR
+    Start([URL Input]) --> Parse{Parse & Extract Domain}
+    Parse -->|Fail| Block1[❌ Parse Error]
+    Parse -->|Success| DetectIP[Detect IP] --> Allow{Whitelist or Allowed Pattern?}
+    
+    Allow -->|Yes| Success[✅ Allow]
+    Allow -->|No| Block{Blocked?<br/>HTTP/Domain/Pattern}
+    
+    Block -->|Yes| Block2[❌ Blocked]
+    Block -->|No| Heuristic{Heuristic Check<br/>Enabled & Not IP?}
+    
+    Heuristic -->|No| Success
+    Heuristic -->|Yes| Checks{Pass Entropy,<br/>TLD & Unicode?}
+    
+    Checks -->|No| Block3[❌ Heuristic Fail]
+    Checks -->|Yes| Success
+    
+    Block1 --> End([Return])
+    Block2 --> End
+    Block3 --> End
+    Success --> End
+    
+    style Start fill:#e1f5ff
+    style End fill:#e1f5ff
+    style Success fill:#c8e6c9
+    style Block1 fill:#ffcdd2
+    style Block2 fill:#ffcdd2
+    style Block3 fill:#ffcdd2
+```
+
 ## Logic workflow
 
 1. **Parse & Normalize URL**  
