@@ -1,4 +1,5 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 use std::collections::HashSet;
 use url_reputation_rust::engine::URLReputationPlugin;
 use url_reputation_rust::types::URLReputationConfig;

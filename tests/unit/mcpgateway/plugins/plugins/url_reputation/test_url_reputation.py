@@ -20,7 +20,17 @@ from mcpgateway.plugins.framework import (
 
 from plugins.url_reputation.url_reputation import URLReputationPlugin, URLReputationConfig
 
-#@pytest.mark.asyncio
+try:
+    from url_reputation_rust import URLReputationPlugin as _rust_plugin
+    _RUST_AVAILABLE = True
+except ImportError as e:
+    _RUST_AVAILABLE = False
+except Exception as e:
+    _RUST_AVAILABLE = False
+
+
+@pytest.mark.skipif(not _RUST_AVAILABLE, reason="Rust url_reputation plugin not available")
+@pytest.mark.asyncio
 async def test_whitelisted_subdomain():
     """Subdomains of a whitelisted domain should be allowed."""
     config = PluginConfig(
@@ -39,10 +49,11 @@ async def test_whitelisted_subdomain():
     )
     plugin = URLReputationPlugin(config)
 
-    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri="https://sub.example.com/login"))
+    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri="https://sub.example.com/login"), None)
     assert res.violation is None
 
 
+@pytest.mark.skipif(not _RUST_AVAILABLE, reason="Rust url_reputation plugin not available")
 @pytest.mark.asyncio
 async def test_phishing_like_domain_blocked():
     """Domains mimicking popular sites but not whitelisted are blocked."""
@@ -63,10 +74,11 @@ async def test_phishing_like_domain_blocked():
     plugin = URLReputationPlugin(config)
 
     url = "https://pаypal.com/login"  # Cyrillic 'а'
-    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url))
+    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url), None)
     assert not res.continue_processing
 
 
+@pytest.mark.skipif(not _RUST_AVAILABLE, reason="Rust url_reputation plugin not available")
 @pytest.mark.asyncio
 async def test_http_blocked_but_https_allowed():
     """Non-HTTPS URLs should be blocked; HTTPS allowed."""
@@ -86,13 +98,14 @@ async def test_http_blocked_but_https_allowed():
     )
     plugin = URLReputationPlugin(config)
 
-    res_http = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri="http://safe.com"))
-    res_https = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri="https://safe.com"))
+    res_http = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri="http://safe.com"), None)
+    res_https = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri="https://safe.com"), None)
 
     assert not res_http.continue_processing
     assert res_https.continue_processing
 
 
+@pytest.mark.skipif(not _RUST_AVAILABLE, reason="Rust url_reputation plugin not available")
 @pytest.mark.asyncio
 async def test_high_entropy_domain_blocked():
     """Random-looking high-entropy domains should be blocked."""
@@ -113,7 +126,7 @@ async def test_high_entropy_domain_blocked():
     plugin = URLReputationPlugin(config)
 
     url = "https://ajsd9a8sd7a98sda7sd9.com"
-    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url))
+    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url), None)
     assert not res.continue_processing
 
 
@@ -137,10 +150,11 @@ async def test_allowed_pattern_url():
     plugin = URLReputationPlugin(config)
 
     url = "https://trusted.example/path"
-    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url))
+    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url), None)
     assert res.continue_processing
 
 
+@pytest.mark.skipif(not _RUST_AVAILABLE, reason="Rust url_reputation plugin not available")
 @pytest.mark.asyncio
 async def test_blocked_pattern_url():
     """URLs matching blocked patterns are rejected even if domain is not blocked."""
@@ -161,7 +175,7 @@ async def test_blocked_pattern_url():
     plugin = URLReputationPlugin(config)
 
     url = "https://example.com/admin/dashboard"
-    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url))
+    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url), None)
     assert not res.continue_processing
     assert res.violation.reason == "Blocked pattern"
 
@@ -186,7 +200,7 @@ async def test_internationalized_domain():
     plugin = URLReputationPlugin(config)
 
     url = "https://xn--fsq.com"  # punycode representation
-    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url))
+    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url), None)
     assert res.continue_processing
 
 
@@ -210,7 +224,7 @@ async def test_mixed_case_domain_allowed():
     plugin = URLReputationPlugin(config)
 
     url = "https://example.com/path"
-    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url))
+    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url), None)
     assert res.continue_processing
 
 
@@ -234,5 +248,5 @@ async def test_url_with_port_allowed():
     plugin = URLReputationPlugin(config)
 
     url = "https://example.com:8080/path"
-    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url))
+    res = await plugin.resource_pre_fetch(ResourcePreFetchPayload(uri=url), None)
     assert res.continue_processing
